@@ -10,64 +10,97 @@ import android.provider.MediaStore
 import android.widget.Toast
 import kotlinx.android.synthetic.main.activity_main.*
 import android.R.attr.data
+import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Environment
 import android.support.v4.app.NotificationCompat.getExtras
 import android.os.Environment.DIRECTORY_PICTURES
+import android.support.v4.content.FileProvider
+import android.util.Log
 import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
+import android.content.Context.MODE_PRIVATE
+import android.content.ContextWrapper
+import java.io.FileOutputStream
 
 
 class MainActivity : AppCompatActivity() {
 
-    val CAMERA_REQUEST_CODE = 1
-    var mCurrentPhotoPath: String = ""
-
+    val CAMERA_REQUEST_CODE = 0
+    lateinit var imageFilePath: String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        cameraButton.setOnClickListener{
-            val callCameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-            if(callCameraIntent.resolveActivity(packageManager) != null){
-                startActivityForResult(callCameraIntent, CAMERA_REQUEST_CODE)
+        cameraButton.setOnClickListener {
+            try {
+                val imageFile = createImageFile()
+                val callCameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                if(callCameraIntent.resolveActivity(packageManager) != null) {
+                    val authorities = packageName + ".fileprovider"
+                    val imageUri = FileProvider.getUriForFile(this, authorities, imageFile)
+                    callCameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri)
+                    startActivityForResult(callCameraIntent, CAMERA_REQUEST_CODE)
+                }
+            } catch (e: IOException) {
+                Toast.makeText(this, "Could not create file!", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == CAMERA_REQUEST_CODE && resultCode == RESULT_OK) {
-            val extras = data?.getExtras()
-            val imageBitmap = extras?.get("data") as Bitmap
-            imageView.setImageBitmap(imageBitmap)
+
+        when(requestCode) {
+            CAMERA_REQUEST_CODE -> {
+/*                if(resultCode == Activity.RESULT_OK && data != null) {
+                    photoImageView.setImageBitmap(data.extras.get("data") as Bitmap)
+                }*/
+                if (resultCode == Activity.RESULT_OK) {
+                    imageView.setImageBitmap(setScaledBitmap())
+                }
+            }
+            else -> {
+                Toast.makeText(this, "Unrecognized request code", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
-
-    private fun createImageFile(): File {
-        // Create an image file name
-        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
+    @Throws(IOException::class)
+    fun createImageFile(): File {
+        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
         val imageFileName = "JPEG_" + timeStamp + "_"
         val storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-        val image = File.createTempFile(
-                imageFileName, /* prefix */
-                ".jpg", /* suffix */
-                storageDir      /* directory */
-        )
+        if(!storageDir.exists()) storageDir.mkdirs()
+        val imageFile = File.createTempFile(imageFileName, ".jpg", storageDir)
+        imageFilePath = imageFile.absolutePath
 
-        // Save a file: path for use with ACTION_VIEW intents
-        mCurrentPhotoPath = image.getAbsolutePath()
-        return image
+        // save to storage
+        return imageFile
     }
 
-    private fun galleryAddPic() {
-        val mediaScanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
-        val f = File(mCurrentPhotoPath)
-        val contentUri = Uri.fromFile(f)
-        mediaScanIntent.data = contentUri
-        this.sendBroadcast(mediaScanIntent)
+
+    fun setScaledBitmap(): Bitmap {
+        val imageViewWidth = imageView.width
+        val imageViewHeight = imageView.height
+
+        val bmOptions = BitmapFactory.Options()
+        bmOptions.inJustDecodeBounds = true
+        BitmapFactory.decodeFile(imageFilePath, bmOptions)
+        val bitmapWidth = bmOptions.outWidth
+        val bitmapHeight = bmOptions.outHeight
+
+        val scaleFactor = Math.min(bitmapWidth/imageViewWidth, bitmapHeight/imageViewHeight)
+
+        bmOptions.inJustDecodeBounds = false
+        bmOptions.inSampleSize = scaleFactor
+
+        return BitmapFactory.decodeFile(imageFilePath, bmOptions)
+
     }
+
 }
